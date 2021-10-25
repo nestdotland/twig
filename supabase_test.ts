@@ -11,7 +11,7 @@ Deno.test({
     assertEquals(tag.moduleName, "eggs");
     assertEquals(tag.versionName, "0.3.2");
 
-    assertEquals(await verifyAuthor(TEST_TAG_ID, "ABCD"), false);
-    assertEquals(await verifyAuthor("ABCD", TEST_ACCESS_TOKEN), false);
+    assertEquals(await verifyAuthor(TEST_TAG_ID, "DIVY"), false);
+    assertEquals(await verifyAuthor("DIVY", TEST_ACCESS_TOKEN), false);
   },
 });

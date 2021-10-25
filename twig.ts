@@ -12,7 +12,6 @@ import {
   encode,
 } from "https://deno.land/std@0.113.0/encoding/base64url.ts";
 
-
 const Version = define("Version", function () {
   this.int();
 });
@@ -124,15 +123,53 @@ export const client = Arweave.init({
 });
 
 if (import.meta.main) {
+  const save = async (data: Uint8Array, mimeType: string) => {
+    const tx = await client.createTransaction(
+      { data },
+      privatekey,
+    );
+    tx.addTag("Content-Type", mimeType);
+
+    return {
+      tx,
+      submit: async () => {
+        tx.setOwner(privatekey.n);
+        const data = await tx.getSignatureData();
+
+        const signature = await crypto.subtle.sign(
+          { name: "RSA-PSS", saltLength: 32 },
+          privateCryptoKey,
+          data,
+        );
+        const id = await crypto.subtle.digest("SHA-256", signature);
+        tx.setSignature({
+          owner: privatekey.n,
+          signature: encode(new Uint8Array(signature)),
+          id: encode(new Uint8Array(id)),
+        });
+
+        const res = await client.transactions.post(tx);
+        return res;
+      },
+    };
+  };
+
   const listener = Deno.listen({ port: 8080 });
   console.log("Listening on 0.0.0.0:8080");
 
   for await (const conn of listener) {
-    handler(conn);
+    handler(conn, save, createFileEntry);
   }
 }
 
-export async function handler(conn: Deno.Conn) {
+export async function handler(
+  conn: Deno.Conn,
+  save: (
+    data: Uint8Array,
+    mimeType: string,
+  ) => Promise<{ tx: any; submit: () => Promise<any> }>,
+  createFileEntry: (file: File) => Promise<void>,
+) {
   for await (const requestEvent of Deno.serveHttp(conn)) {
     const { request } = requestEvent;
     if (request.method !== "POST") {
@@ -148,7 +185,7 @@ export async function handler(conn: Deno.Conn) {
       const record = db.query("SELECT progress FROM cache WHERE id = ?", [
         cacheId,
       ]);
-      const progress = record ? record[0].progress : PROGRESS.UNKNOWN;
+      const progress = record ? record[0][0] : PROGRESS.UNKNOWN;
       return requestEvent.respondWith(
         new Response(JSON.stringify({ progress }), { status: 200 }),
       );
@@ -214,12 +251,7 @@ export async function handler(conn: Deno.Conn) {
       const dataBuf = new Buffer();
       await dataBuf.readFrom(entry);
 
-      const tx = await client.createTransaction(
-        { data: dataBuf.bytes() },
-        privatekey,
-      );
-      tx.addTag("Content-Type", mimeType);
-
+      const { tx, submit } = await save(dataBuf.bytes(), mimeType);
       const file = {
         path: entry.fileName,
         size: entry.fileSize,
@@ -243,24 +275,7 @@ export async function handler(conn: Deno.Conn) {
         file.mimeType,
       ]);
 
-      tx.setOwner(privatekey.n);
-      const data = await tx.getSignatureData();
-
-      const signature = await crypto.subtle.sign(
-        { name: "RSA-PSS", saltLength: 32 },
-        privateCryptoKey,
-        data,
-      );
-      const id = await crypto.subtle.digest("SHA-256", signature);
-      tx.setSignature({
-        owner: privatekey.n,
-        signature: encode(new Uint8Array(signature)),
-        id: encode(new Uint8Array(id)),
-      });
-
-      const res = await client.transactions.post(tx);
-
-      // TODO: Handle
+      const res = await submit();
       if (res.status >= 300) throw new Error(`Tx failed.`);
 
       files.push(file);
