@@ -6,44 +6,8 @@ import { Untar } from "https://deno.land/std@0.112.0/archive/tar.ts";
 import { DB } from "https://deno.land/x/sqlite@v3.1.1/mod.ts";
 import { createFileEntry, File, verifyAuthor } from "./supabase.ts";
 import { getType } from "https://esm.sh/mime";
-import { bignum, define } from "https://esm.sh/asn1.js";
-import {
-  decode,
-  encode,
-} from "https://deno.land/std@0.113.0/encoding/base64url.ts";
-
-const Version = define("Version", function () {
-  this.int();
-});
-const AlgorithmIdentifier = define("AlgorithmIdentifer", function () {
-  this.seq().obj(
-    this.key("algorithm").objid(),
-    this.key("parameters").optional().any(),
-  );
-});
-
-const PrivateKeyInfo = define("PrivateKeyInfo", function () {
-  this.seq().obj(
-    this.key("version").use(Version),
-    this.key("privateKeyAlgorithm").use(AlgorithmIdentifier),
-    this.key("privateKey").octstr(),
-    this.key("attributes").optional().any(),
-  );
-});
-
-const RsaPrivateKey = define("RSAPrivateKey", function () {
-  this.seq().obj(
-    this.key("version").use(Version),
-    this.key("modulus").int(),
-    this.key("publicExponent").int(),
-    this.key("privateExponent").int(),
-    this.key("prime1").int(),
-    this.key("prime2").int(),
-    this.key("exponent1").int(),
-    this.key("exponent2").int(),
-    this.key("coefficient").int(),
-  );
-});
+import { encode } from "https://deno.land/std@0.113.0/encoding/base64url.ts";
+import { loadPrivateKey } from "./private_key.ts";
 
 const db = new DB("progress_cache.db");
 
@@ -76,41 +40,8 @@ db.query(`
   )
 `);
 
-const privatekey = JSON.parse(
-  await Deno.readTextFile(
-    Deno.env.get("KEYFILE") || "./arweave.json",
-  ),
-);
-
-const toBigNum = (str: string) => new bignum(decode(str), 10, "be").iabs();
-
-const privateKeyDer = PrivateKeyInfo.encode(
-  {
-    version: 0,
-    privateKeyAlgorithm: {
-      algorithm: [1, 2, 840, 113549, 1, 1, 1],
-      parameters: [5, 0],
-    },
-    privateKey: RsaPrivateKey.encode({
-      version: 0,
-      modulus: toBigNum(privatekey.n),
-      publicExponent: toBigNum(privatekey.e),
-      privateExponent: toBigNum(privatekey.d),
-      prime1: toBigNum(privatekey.p),
-      prime2: toBigNum(privatekey.q),
-      exponent1: toBigNum(privatekey.dp),
-      exponent2: toBigNum(privatekey.dq),
-      coefficient: toBigNum(privatekey.qi),
-    }, "der"),
-  },
-);
-
-const privateCryptoKey: CryptoKey = await crypto.subtle.importKey(
-  "pkcs8",
-  privateKeyDer,
-  { name: "RSA-PSS", hash: "SHA-256" },
-  false,
-  ["sign"],
+const { cryptoKey, jwk } = await loadPrivateKey(
+  Deno.env.get("KEYFILE") || "./arweave.json",
 );
 
 export const client = Arweave.init({
@@ -126,19 +57,19 @@ if (import.meta.main) {
   const save = async (data: Uint8Array, mimeType: string) => {
     const tx = await client.createTransaction(
       { data },
-      privatekey,
+      jwk,
     );
     tx.addTag("Content-Type", mimeType);
 
     return {
       tx,
       submit: async () => {
-        tx.setOwner(privatekey.n);
+        tx.setOwner(jwk.n);
         const data = await tx.getSignatureData();
 
         const signature = await crypto.subtle.sign(
           { name: "RSA-PSS", saltLength: 32 },
-          privateCryptoKey,
+          cryptoKey,
           data,
         );
         const id = await crypto.subtle.digest("SHA-256", signature);

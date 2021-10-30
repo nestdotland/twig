@@ -1,0 +1,15 @@
+[package]
+name = "cache"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+deno_bindgen = { git = "https://github.com/littledivy/deno_bindgen" }
+lazy_static = "1.4"
+serde = { version = "1", features = ["derive"] }
+r2d2 = "0.8.9"
+r2d2_sqlite = "0.19.0"
+

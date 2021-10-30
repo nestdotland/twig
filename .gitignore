@@ -1,3 +1,4 @@
+cache/target/
 arweave.json
 .env
 *.db

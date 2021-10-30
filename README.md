@@ -28,3 +28,7 @@ desired assertions and run with `make test`.
 
 See [`twig_test.ts`](./twig_test.ts) for an example for uploading a module and
 retrieving progress.
+
+### License
+
+MIT License
