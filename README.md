@@ -15,14 +15,13 @@ SUPABASE_API_KEY="<supabase api key>"
 KEYFILE="<path to arweave wallet>"
 
 # For `make test`
-TEST_TAG_ID="<tag id>"
 TEST_ACCESS_TOKEN="<access token hash>"
 ```
 
 Start the server with `make` on localhost port 8080.
 
-To run the test suite, ensure `TEST_TAG_ID` and `TEST_ACCESS_TOKEN` match the
-desired assertions and run with `make test`.
+To run the test suite, ensure `TEST_ACCESS_TOKEN` match the desired assertions
+and run with `make test`.
 
 ### Usage
 
