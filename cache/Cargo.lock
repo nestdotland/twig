@@ -58,7 +58,7 @@ checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 [[package]]
 name = "deno_bindgen"
 version = "0.2.0"
-source = "git+https://github.com/littledivy/deno_bindgen#2f195b4ced884723b31ffabd33d410f717ca7b8b"
+source = "git+https://github.com/littledivy/deno_bindgen?rev=14b0169#14b0169ba99a33fc0d700505c4a633178926638a"
 dependencies = [
  "deno_bindgen_macro",
  "serde",
@@ -68,7 +68,7 @@ dependencies = [
 [[package]]
 name = "deno_bindgen_macro"
 version = "0.2.0"
-source = "git+https://github.com/littledivy/deno_bindgen#2f195b4ced884723b31ffabd33d410f717ca7b8b"
+source = "git+https://github.com/littledivy/deno_bindgen?rev=14b0169#14b0169ba99a33fc0d700505c4a633178926638a"
 dependencies = [
  "Inflector",
  "proc-macro2",
@@ -142,9 +142,9 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"
-version = "0.2.105"
+version = "0.2.106"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "869d572136620d55835903746bcb5cdc54cb2851fd0aeec53220b4bb65ef3013"
+checksum = "a60553f9a9e039a333b4e9b20573b9e9b9c0bb3a11e201ccc48ef4283456d673"
 
 [[package]]
 name = "libsqlite3-sys"
