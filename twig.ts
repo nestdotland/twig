@@ -3,42 +3,17 @@ import "https://deno.land/x/xhr@0.1.2/mod.ts";
 import Arweave from "https://esm.sh/arweave";
 import { Buffer } from "https://deno.land/std@0.112.0/io/buffer.ts";
 import { Untar } from "https://deno.land/std@0.112.0/archive/tar.ts";
-import { DB } from "https://deno.land/x/sqlite@v3.1.1/mod.ts";
-import { createFileEntry, File, verifyAuthor } from "./supabase.ts";
+import { createManifestEntry, verifyAuthor } from "./supabase.ts";
 import { getType } from "https://esm.sh/mime";
 import { encode } from "https://deno.land/std@0.113.0/encoding/base64url.ts";
+import {
+  drop_file,
+  File,
+  get_status,
+  save as saveFileCache,
+  update_status,
+} from "./cache/mod.ts";
 import { loadPrivateKey } from "./private_key.ts";
-
-const db = new DB("progress_cache.db");
-
-export enum PROGRESS {
-  STARTED = 0,
-  PROCESSING = 1,
-  UPLOADING = 2,
-  DONE = 3,
-  UNKNOWN = 4,
-}
-
-db.query(`
-  CREATE TABLE IF NOT EXISTS cache (
-    id TEXT PRIMARY KEY,
-    progress INTEGER
-  )
-`);
-
-db.query(`
-  CREATE TABLE IF NOT EXISTS file (
-    id TEXT PRIMARY KEY,
-    cache_id TEXT,
-    path TEXT NOT NULL,
-    size INTEGER NOT NULL,
-    authorName TEXT NOT NULL,
-    moduleName TEXT NOT NULL,
-    versionName TEXT NOT NULL,
-    txid TEXT,
-    mimeType TEXT
-  )
-`);
 
 const { cryptoKey, jwk } = await loadPrivateKey(
   Deno.env.get("KEYFILE") || "./arweave.json",
@@ -74,7 +49,7 @@ if (import.meta.main) {
         );
         const id = await crypto.subtle.digest("SHA-256", signature);
         tx.setSignature({
-          owner: privatekey.n,
+          owner: jwk.n,
           signature: encode(new Uint8Array(signature)),
           id: encode(new Uint8Array(id)),
         });
@@ -89,7 +64,7 @@ if (import.meta.main) {
   console.log("Listening on 0.0.0.0:8080");
 
   for await (const conn of listener) {
-    handler(conn, save, createFileEntry);
+    handler(conn, save, createManifestEntry);
   }
 }
 
@@ -99,7 +74,11 @@ export async function handler(
     data: Uint8Array,
     mimeType: string,
   ) => Promise<{ tx: any; submit: () => Promise<any> }>,
-  createFileEntry: (file: File) => Promise<void>,
+  createManifestEntry: (
+    version: string,
+    moduleName: string,
+    tx: string,
+  ) => Promise<void>,
 ) {
   for await (const requestEvent of Deno.serveHttp(conn)) {
     const { request } = requestEvent;
@@ -107,39 +86,44 @@ export async function handler(
       const url = new URL(request.url);
       const cacheId = url.searchParams.get("cache_id");
       if (!cacheId) {
-        return requestEvent.respondWith(
+        await requestEvent.respondWith(
           new Response(JSON.stringify({
             error: "`cache_id` parameter missing.",
           })),
         );
+
+        continue;
       }
-      const record = db.query("SELECT progress FROM cache WHERE id = ?", [
-        cacheId,
-      ]);
-      const progress = record ? record[0][0] : PROGRESS.UNKNOWN;
-      return requestEvent.respondWith(
+      const progress = await get_status(cacheId);
+      await requestEvent.respondWith(
         new Response(JSON.stringify({ progress }), { status: 200 }),
       );
+
+      continue;
     }
 
     const accessToken = request?.headers.get("authorization");
-    const tagId = request?.headers.get("nest-tag-id");
+    const version = request?.headers.get("nest-version-name");
+    const moduleName = request?.headers.get("nest-version-module");
 
-    if (!accessToken || !tagId) {
-      return requestEvent.respondWith(
+    if (!accessToken || !version || !moduleName) {
+      await requestEvent.respondWith(
         new Response(JSON.stringify({
-          error: "Missing `Nest-Tag-ID` or `Authorization` header.",
+          error:
+            "Missing `Nest-Version-Name`, `Nest-Version-Module` or `Authorization` header.",
         })),
       );
+
+      continue;
     }
 
-    const tag = await verifyAuthor(tagId, accessToken);
+    const tag = await verifyAuthor(version, moduleName, accessToken);
+
     if (!tag) {
       return requestEvent.respondWith(
         new Response(JSON.stringify({
           error: "Access denied.",
         })),
-        { status: 400 },
       );
     }
 
@@ -147,13 +131,7 @@ export async function handler(
     if (stream == undefined) return requestEvent.respondWith(new Response());
 
     const cacheId = crypto.randomUUID();
-    requestEvent.respondWith(new Response(cacheId, { status: 200 }));
-
-    db.query("INSERT INTO cache (id, progress) VALUES (?, ?)", [
-      cacheId,
-      PROGRESS.PROCESSING,
-    ]);
-
+    await update_status(cacheId, "Processing");
     const readBuffer = new Buffer();
 
     const reader: Deno.Reader = {
@@ -174,7 +152,7 @@ export async function handler(
       },
     };
 
-    const files: File[] = [];
+    const files: Record<string, { id: string }> = {};
     const pack = new Untar(reader);
     for await (const entry of pack) {
       if (entry.type !== "file") continue;
@@ -188,43 +166,39 @@ export async function handler(
         size: entry.fileSize,
         authorName: tag.authorName,
         moduleName: tag.moduleName,
-        versionName: tag.versionName,
-        id: crypto.randomUUID(),
-        txid: tx.id,
+        versionName: tag.name,
+        id: tx,
         mimeType,
       };
 
-      db.query("INSERT INTO file VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", [
-        file.id,
-        cacheId,
-        file.path,
-        file.size,
-        file.authorName,
-        file.moduleName,
-        file.versionName,
-        file.txid,
-        file.mimeType,
-      ]);
-
+      await saveFileCache(cacheId, file);
       const res = await submit();
       if (res.status >= 300) throw new Error(`Tx failed.`);
 
-      files.push(file);
+      files[file.path] = { id: tx };
     }
 
-    db.query("UPDATE cache SET progress = ? WHERE id = ?", [
-      PROGRESS.UPLOADING,
-      cacheId,
-    ]);
+    await update_status(cacheId, "Uploading");
+    const { tx, submit } = await save(
+      Deno.core.encode(JSON.stringify({
+        manifest: "arweave/paths",
+        version: "0.1.0",
+        index: {
+          path: tag.main,
+        },
+        paths: files,
+      })),
+      "application/x.arweave-manifest+json",
+    );
 
-    for (const file of files) {
-      await createFileEntry(file);
-      db.query("DELETE FROM file WHERE id = ?", [file.id]);
+    await submit();
+    await createManifestEntry(version, moduleName, tx);
+
+    for (const file in files) {
+      await drop_file(files[file].id);
     }
-
-    db.query("UPDATE cache SET progress = ? WHERE id = ?", [
-      PROGRESS.DONE,
-      cacheId,
-    ]);
+    await update_status(cacheId, "Done");
+    await requestEvent.respondWith(new Response(cacheId));
+    continue;
   }
 }

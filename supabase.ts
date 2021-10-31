@@ -7,9 +7,13 @@ export const supabase = createClient(
   Deno.env.get("SUPABASE_API_KEY"),
 );
 
-export async function verifyAuthor(tag_id: string, access_token: string) {
-  const { data: Tag, error } = await supabase.from("Tag").select("*")
-    .eq("id", tag_id).single();
+export async function verifyAuthor(
+  version: string,
+  moduleName: string,
+  access_token: string,
+) {
+  const { data: Version, error } = await supabase.from("Version").select("*")
+    .eq("name", version).eq("moduleName", moduleName).single();
 
   if (error) return false;
 
@@ -17,23 +21,18 @@ export async function verifyAuthor(tag_id: string, access_token: string) {
     .select("username").eq("hash", access_token).single();
 
   if (userError) return false;
-  return User.username === Tag.authorName ? Tag : null;
+  return User.username === Version.authorName ? Version : null;
 }
 
-export type File = {
-  path: string;
-  size: number;
-  authorName: string;
-  moduleName: string;
-  versionName: string;
-  id: string;
-  txid: string;
-  mimeType: string;
-};
-
-export async function createFileEntry(file: File) {
-  const { data, error } = await supabase.from("File").insert(file);
-  if (error) throw new Error(`File creation failed: ${error.message}`);
+export async function createManifestEntry(
+  version: string,
+  moduleName: string,
+  tx: string,
+) {
+  const { data, error } = await supabase.from("Version").update({
+    manifestid: tx,
+  }).eq("name", version).eq("moduleName", moduleName);
+  if (error) throw new Error(`Failed to update manifest tx: ${error.message}`);
 
   return data;
 }
