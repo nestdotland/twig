@@ -1,6 +1,7 @@
-import { bignum, define } from "https://esm.sh/asn1.js";
+import asn1js from "https://esm.sh/asn1.js";
 import { decode } from "https://deno.land/std@0.113.0/encoding/base64url.ts";
 
+const { define, bignum } = asn1js;
 export const Version = define("Version", function () {
   this.int();
 });

@@ -4,7 +4,7 @@ import Arweave from "https://esm.sh/arweave";
 import { Buffer } from "https://deno.land/std@0.112.0/io/buffer.ts";
 import { Untar } from "https://deno.land/std@0.112.0/archive/tar.ts";
 import { createManifestEntry, verifyAuthor } from "./supabase.ts";
-import { getType } from "https://esm.sh/mime";
+import * as mime from "https://esm.sh/mime";
 import { encode } from "https://deno.land/std@0.113.0/encoding/base64url.ts";
 import {
   drop_file,
@@ -15,6 +15,7 @@ import {
 } from "./cache/mod.ts";
 import { loadPrivateKey } from "./private_key.ts";
 
+const { getType } = mime;
 const { cryptoKey, jwk } = await loadPrivateKey(
   Deno.env.get("KEYFILE") || "./arweave.json",
 );
